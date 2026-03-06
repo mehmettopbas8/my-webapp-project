@@ -61,6 +61,13 @@ public class TasksServlet extends HttpServlet {
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        // Ensure we read request body as UTF-8 to avoid charset issues from some clients
+        try {
+            req.setCharacterEncoding("UTF-8");
+        } catch (java.io.UnsupportedEncodingException e) {
+            // unlikely, but fallback: proceed without setting encoding
+        }
+
         try {
             Task input = gson.fromJson(req.getReader(), Task.class);
             if (input == null || input.getTitle() == null) {
@@ -84,25 +91,40 @@ public class TasksServlet extends HttpServlet {
     protected void doPut(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String pathInfo = req.getPathInfo();
         Integer id = parseId(pathInfo);
-        if (id == null) {
-            resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "Missing id in path");
-            return;
-        }
         try {
             Task input = gson.fromJson(req.getReader(), Task.class);
             if (input == null) {
                 resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid body");
                 return;
             }
+
+            // If id not provided in path, try to take it from the body (id > 0)
+            if (id == null) {
+                if (input.getId() > 0) {
+                    id = input.getId();
+                } else {
+                    resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "Missing id in path or body");
+                    return;
+                }
+            }
+
+            // Validate required fields
+            if (input.getTitle() == null) {
+                resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "Missing task title");
+                return;
+            }
+
             input.setId(id);
             boolean ok = dao.update(input);
             if (!ok) {
-                resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                resp.sendError(HttpServletResponse.SC_NOT_FOUND, "Task not found");
             } else {
                 resp.setStatus(HttpServletResponse.SC_NO_CONTENT);
             }
-        } catch (JsonSyntaxException | SQLException e) {
+        } catch (JsonSyntaxException e) {
             resp.sendError(HttpServletResponse.SC_BAD_REQUEST, e.getMessage());
+        } catch (SQLException e) {
+            resp.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, e.getMessage());
         }
     }
 
